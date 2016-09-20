@@ -7,6 +7,7 @@ typedef struct {
   InterruptIn *sw;
   DigitalOut *led;
   RawSerial *pc;
+  int var;
 } my_box_context;
 
 static const UvisorBoxAclItem acl[] = {
@@ -19,19 +20,18 @@ UVISOR_BOX_HEAPSIZE(4096);
 UVISOR_BOX_MAIN(my_box_main, osPriorityNormal, UVISOR_BOX_STACK_SIZE);
 UVISOR_BOX_CONFIG(my_box, acl, UVISOR_BOX_STACK_SIZE, my_box_context);
 
-volatile int var = 0; // not secure just for test purpose
- 
+
 void isr() {
-    var = 1;
+    uvisor_ctx->var = 1;
     
 }
  
 void my_thread(void) {
     while (true) {
-        if(var){
+        if(uvisor_ctx->var){
           *uvisor_ctx->led = !*uvisor_ctx->led;
           uvisor_ctx->pc->printf("LED = %d\n", uvisor_ctx->led->read());
-          var = 0;
+          uvisor_ctx->var = 0;
         }
         Thread::wait(1000);
     }
@@ -57,6 +57,8 @@ static void my_box_main (const void *) {
     uvisor_ctx->sw->mode(PullUp);
     uvisor_ctx->sw->fall(isr);
 
+    /* Init var */
+    uvisor_ctx->var = 0;
     osStatus status;
 
       /* Start ScThread Thread */
