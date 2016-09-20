@@ -3,54 +3,68 @@
 #include "uvisor-lib/uvisor-lib.h"
 
 
-
-
-
-
-
-/* Private static memory for the secure box */
 typedef struct {
-  int secret;
-} Contextbox2;
+  InterruptIn *sw;
+  DigitalOut *led;
+  RawSerial *pc;
+} my_box_context;
 
-
-static const UvisorBoxAclItem Thread_2_acls[] = {
-  {(void*) 0x40008000,      0x2000,            UVISOR_TACLDEF_PERIPH}, 
+static const UvisorBoxAclItem acl[] = {
 };
 
-static void Thread_2(const void *);
-/* Secure box configuration */
-UVISOR_BOX_NAMESPACE(NULL);                   /* We won't specify a box namespace for this example. */
-UVISOR_BOX_HEAPSIZE(4096);                    /* Heap size for the secure box */
-UVISOR_BOX_MAIN(Thread_2,    /* Main thread for the secure box */
-                osPriorityNormal,             /* Priority of the secure box's main thread */
-                1024);                        /* Stack size for the secure box's main thread */
-UVISOR_BOX_CONFIG(box2,              /* Name of the secure box */
-                  Thread_2_acls,       /* ACLs list for the secure box */
-                  1024,                       /* Stack size for the secure box */
-                  Contextbox2);  /* Private static memory for the secure box. */
+static void my_box_main(const void *);
 
+UVISOR_BOX_NAMESPACE(NULL);
+UVISOR_BOX_HEAPSIZE(4096);
+UVISOR_BOX_MAIN(my_box_main, osPriorityNormal, UVISOR_BOX_STACK_SIZE);
+UVISOR_BOX_CONFIG(my_box, acl, UVISOR_BOX_STACK_SIZE, my_box_context);
 
-
-Serial pc(SERIAL_TX, SERIAL_RX);
-DigitalOut led1(LED1);
-
-static void but_func(void)
-{
-   led1 = !led1;
+volatile int var = 0; // not secure just for test purpose
+ 
+void isr() {
+    var = 1;
+    
 }
+ 
+void my_thread(void) {
+    while (true) {
+        if(var){
+          *uvisor_ctx->led = !*uvisor_ctx->led;
+          uvisor_ctx->pc->printf("LED = %d\n", uvisor_ctx->led->read());
+          var = 0;
+        }
+        Thread::wait(1000);
+    }
+}
+ 
+static void my_box_main (const void *) {
+    
 
+    /* Init Serial */
+    RawSerial *pc;    
+    if(!(pc = new RawSerial(USBTX, USBRX)))
+      return;
+    uvisor_ctx->pc = pc;
 
-/* Main thread for the secure box */
-static void Thread_2(const void *)
-{
-  InterruptIn button(SW1);
-  button.mode(PullUp);
-  button.fall(&but_func);
+    /* Init led */
+    if(!(uvisor_ctx->led = new DigitalOut(LED1)))
+      return;
+    *uvisor_ctx->led = 0;
 
-  while (true) {
-    pc.printf("led1 : %d\r\n", led1.read());
-    Thread::wait(1000);
-  }
+    /* Init interrupt */
+    if(!(uvisor_ctx->sw = new InterruptIn(SW1)))
+      return;
+    uvisor_ctx->sw->mode(PullUp);
+    uvisor_ctx->sw->fall(isr);
+
+    osStatus status;
+
+      /* Start ScThread Thread */
+    Thread * thread = new Thread();
+    status = thread->start(my_thread);
+    if (status != osOK) {
+      uvisor_ctx->pc->printf("Could not start my_thread .\r\n");
+      uvisor_error(USER_NOT_ALLOWED);
+    }
 
 }
